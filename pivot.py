@@ -41,25 +41,30 @@ def pivot_service():
             df.columns = df.iloc[0]
             df = df.drop(0).reset_index(drop=True)
 
-            # --- Normalize headers ---
+            # --- Clean headers ---
+            df.columns = [str(c).strip() for c in df.columns]       # strip spaces
+            df = df.loc[:, df.columns.notnull()]                   # drop NaN headers
+            df = df.drop(columns=[c for c in df.columns if c == ""])  # drop blanks
+
+            # --- Normalize names ---
             rename_map = {
                 "Product ID": "Product ID",
                 "Branch ID": "Branch ID",
-                "Qty On Hand": "Qty On Hand",
-                "Branch ID ": "Branch ID",  # in case of trailing space
-                " Branch ID": "Branch ID",  # in case of leading space
+                "Qty On Hand": "Qty On Hand"
             }
             df = df.rename(columns=rename_map)
 
-            # Keep only the 3 relevant columns
-            needed = ["Product ID", "Branch ID", "Qty On Hand"]
-            df = df[[c for c in df.columns if c in needed]]
+            # keep only needed columns (ignore others like Store/Location Name)
+            needed = [c for c in ["Product ID", "Branch ID", "Qty On Hand"] if c in df.columns]
+            df = df[needed]
 
             dfs.append(df)
 
         merged = pd.concat(dfs, ignore_index=True)
 
-        # Ensure correct dtypes
+        if "Qty On Hand" not in merged.columns:
+            return jsonify({"error": f"Cleaned columns: {list(merged.columns)}"}), 400
+
         merged["Qty On Hand"] = pd.to_numeric(merged["Qty On Hand"], errors="coerce").fillna(0)
 
         # Build pivot
