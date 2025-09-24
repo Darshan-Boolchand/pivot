@@ -24,7 +24,6 @@ def pivot_service():
     try:
         dfs = []
 
-        # Convert each .xls -> DataFrame
         for f in files:
             if not f.filename.lower().endswith('.xls'):
                 return jsonify({"error": f"File {f.filename} is not .xls"}), 400
@@ -32,11 +31,9 @@ def pivot_service():
             tmp_input = os.path.join(tmpdir, f.filename)
             f.save(tmp_input)
 
-            # read Excel via xlrd
             book = xlrd.open_workbook(tmp_input, logfile=open(os.devnull, 'w'))
             sheet = book.sheet_by_index(0)
 
-            # convert to DataFrame
             data = [sheet.row_values(r) for r in range(sheet.nrows)]
             df = pd.DataFrame(data)
 
@@ -44,22 +41,28 @@ def pivot_service():
             df.columns = df.iloc[0]
             df = df.drop(0).reset_index(drop=True)
 
+            # --- Normalize headers ---
+            rename_map = {
+                "Product ID": "Product ID",
+                "Branch ID": "Branch ID",
+                "Qty On Hand": "Qty On Hand",
+                "Branch ID ": "Branch ID",  # in case of trailing space
+                " Branch ID": "Branch ID",  # in case of leading space
+            }
+            df = df.rename(columns=rename_map)
+
+            # Keep only the 3 relevant columns
+            needed = ["Product ID", "Branch ID", "Qty On Hand"]
+            df = df[[c for c in df.columns if c in needed]]
+
             dfs.append(df)
 
-        if not dfs:
-            return jsonify({"error": "No valid data extracted"}), 400
-
-        # Merge all DataFrames into one
         merged = pd.concat(dfs, ignore_index=True)
 
-        # Ensure proper column names
-        expected_cols = {"Branch ID", "Product ID", "Qty On Hand"}
-        if not expected_cols.issubset(set(merged.columns)):
-            return jsonify({
-                "error": f"Missing required columns. Found: {list(merged.columns)}"
-            }), 400
+        # Ensure correct dtypes
+        merged["Qty On Hand"] = pd.to_numeric(merged["Qty On Hand"], errors="coerce").fillna(0)
 
-        # Build pivot: Product ID as rows, Branch ID as columns, sum of Qty On Hand
+        # Build pivot
         pivot = pd.pivot_table(
             merged,
             index=["Product ID"],
@@ -69,7 +72,7 @@ def pivot_service():
             fill_value=0
         )
 
-        # Save only pivot to Excel
+        # Save pivot to Excel
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             pivot.to_excel(writer, sheet_name="Pivot")
 
