@@ -32,37 +32,42 @@ def pivot_service():
             tmp_input = os.path.join(tmpdir, f.filename)
             f.save(tmp_input)
 
+            # read Excel via xlrd
             book = xlrd.open_workbook(tmp_input, logfile=open(os.devnull, 'w'))
             sheet = book.sheet_by_index(0)
 
+            # convert to DataFrame
             data = [sheet.row_values(r) for r in range(sheet.nrows)]
             df = pd.DataFrame(data)
+
+            # first row as headers
+            df.columns = df.iloc[0]
+            df = df.drop(0).reset_index(drop=True)
 
             dfs.append(df)
 
         if not dfs:
             return jsonify({"error": "No valid data extracted"}), 400
 
-        # Merge all DataFrames
+        # Merge all DataFrames into one
         merged = pd.concat(dfs, ignore_index=True)
 
-        # Assume first row is headers
-        merged.columns = merged.iloc[0]
-        merged = merged.drop(0).reset_index(drop=True)
+        # Ensure proper column names
+        expected_cols = {"Branch ID", "Product ID", "Qty On Hand"}
+        if not expected_cols.issubset(set(merged.columns)):
+            return jsonify({
+                "error": f"Missing required columns. Found: {list(merged.columns)}"
+            }), 400
 
-        # ⚡ Pivot table example — adjust fields to your actual Stock_Master.xlsx
-        try:
-            pivot = pd.pivot_table(
-                merged,
-                index=["Store"],        # <-- replace with your row field
-                columns=["Product"],    # <-- replace with your column field
-                values="Quantity",      # <-- replace with your value field
-                aggfunc="sum",
-                fill_value=0
-            )
-        except Exception:
-            # fallback: just dump merged if pivot fails
-            pivot = merged
+        # Build pivot: Product ID as rows, Branch ID as columns, sum of Qty On Hand
+        pivot = pd.pivot_table(
+            merged,
+            index=["Product ID"],
+            columns=["Branch ID"],
+            values="Qty On Hand",
+            aggfunc="sum",
+            fill_value=0
+        )
 
         # Save only pivot to Excel
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
