@@ -14,8 +14,8 @@ def pivot_service():
         return jsonify({"error": "No files uploaded"}), 400
 
     files = request.files.getlist("files")
-    if len(files) != 5:
-        return jsonify({"error": "Exactly 5 .xls files are required"}), 400
+    if not files:
+        return jsonify({"error": "No files uploaded"}), 400
 
     tmpdir = tempfile.gettempdir()
     unique_id = str(uuid.uuid4())
@@ -40,23 +40,29 @@ def pivot_service():
 
             dfs.append(df)
 
-        # Merge all 5 DataFrames
+        if not dfs:
+            return jsonify({"error": "No valid data extracted"}), 400
+
+        # Merge all DataFrames
         merged = pd.concat(dfs, ignore_index=True)
 
-        # First row = headers
+        # Assume first row is headers
         merged.columns = merged.iloc[0]
         merged = merged.drop(0).reset_index(drop=True)
 
-        # ⚡ Build Pivot (adjust index/columns/values as per your Stock_Master.xlsx)
-        # Example: pivot sales quantity by Store and Product
-        pivot = pd.pivot_table(
-            merged,
-            index=["Store"],          # <-- adjust
-            columns=["Product"],      # <-- adjust
-            values="Quantity",        # <-- adjust
-            aggfunc="sum",
-            fill_value=0
-        )
+        # ⚡ Pivot table example — adjust fields to your actual Stock_Master.xlsx
+        try:
+            pivot = pd.pivot_table(
+                merged,
+                index=["Store"],        # <-- replace with your row field
+                columns=["Product"],    # <-- replace with your column field
+                values="Quantity",      # <-- replace with your value field
+                aggfunc="sum",
+                fill_value=0
+            )
+        except Exception:
+            # fallback: just dump merged if pivot fails
+            pivot = merged
 
         # Save only pivot to Excel
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
